@@ -61,6 +61,11 @@ class BaseTerminalController: NSWindowController,
     @Published var tabBarBackgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     @Published var tabBarForegroundColor: Color = Color(nsColor: .labelColor)
 
+    /// The background (inactive) internal tabs, kept mounted in the view so
+    /// their surfaces stay alive across tab switches. Only populated by
+    /// ``TerminalController``; other subclasses leave this empty.
+    @Published var inactiveTabContents: [InactiveTabContent] = []
+
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 

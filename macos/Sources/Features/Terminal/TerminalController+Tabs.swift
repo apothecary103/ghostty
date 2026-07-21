@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+/// Content for a background (inactive) internal tab. These are kept mounted in
+/// the window (hidden behind the active tab) so their terminal surfaces stay
+/// alive and rendering across tab switches — surfaces that leave the window
+/// entirely get their renderer paused with no clean resume.
+struct InactiveTabContent: Identifiable {
+    let id: Int
+    let tree: SplitTree<Ghostty.SurfaceView>
+}
+
 /// Internal (non-native) tab support for `TerminalController`.
 ///
 /// Instead of using AppKit's `NSWindowTabGroup` (where each tab is a separate
@@ -161,6 +170,12 @@ extension TerminalController {
         if let idx = activeTabIndex {
             tabs[idx].title = window?.title ?? "👻"
         }
+
+        // Publish the background tabs so the view can keep them mounted (hidden
+        // behind the active tab) and their surfaces stay alive across switches.
+        inactiveTabContents = tabs
+            .filter { $0.id != selectedTabID }
+            .map { InactiveTabContent(id: $0.id, tree: $0.tree) }
 
         guard tabs.count > 1 else {
             if !tabBarTabs.isEmpty { tabBarTabs = [] }

@@ -53,6 +53,10 @@ protocol TerminalViewModel: ObservableObject {
     /// bar so it follows the active color scheme. These should be @Published.
     var tabBarBackgroundColor: Color { get }
     var tabBarForegroundColor: Color { get }
+
+    /// Background (inactive) internal tabs, kept mounted so their surfaces stay
+    /// alive across tab switches. This should be @Published.
+    var inactiveTabContents: [InactiveTabContent] { get }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -97,30 +101,47 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         DebugBuildWarningView()
                     }
 
-                    TerminalSplitTreeView(
-                        tree: viewModel.surfaceTree,
-                        action: { delegate?.performSplitAction($0) })
-                        .environmentObject(ghostty)
-                        .ghosttyLastFocusedSurface(lastFocusedSurface)
-                        .focused($focused)
-                        .onAppear { self.focused = true }
-                        .onChange(of: focusedSurface) { newValue in
-                            // We want to keep track of our last focused surface so even if
-                            // we lose focus we keep this set to the last non-nil value.
-                            if newValue != nil {
-                                lastFocusedSurface = .init(newValue)
-                                self.delegate?.focusedSurfaceDidChange(to: newValue)
+                    ZStack {
+                        // Background (inactive) tabs are kept mounted in the
+                        // window so their terminal surfaces stay alive across
+                        // switches (a surface removed from the window entirely
+                        // gets its renderer paused with no clean resume). They
+                        // are hidden and non-interactive; the active tab draws
+                        // on top of them.
+                        ForEach(viewModel.inactiveTabContents) { content in
+                            TerminalSplitTreeView(
+                                tree: content.tree,
+                                action: { _ in })
+                                .environmentObject(ghostty)
+                                .allowsHitTesting(false)
+                                .opacity(0)
+                        }
+
+                        TerminalSplitTreeView(
+                            tree: viewModel.surfaceTree,
+                            action: { delegate?.performSplitAction($0) })
+                            .environmentObject(ghostty)
+                            .ghosttyLastFocusedSurface(lastFocusedSurface)
+                            .focused($focused)
+                            .onAppear { self.focused = true }
+                            .onChange(of: focusedSurface) { newValue in
+                                // We want to keep track of our last focused surface so even if
+                                // we lose focus we keep this set to the last non-nil value.
+                                if newValue != nil {
+                                    lastFocusedSurface = .init(newValue)
+                                    self.delegate?.focusedSurfaceDidChange(to: newValue)
+                                }
                             }
-                        }
-                        .onChange(of: pwdURL) { newValue in
-                            self.delegate?.pwdDidChange(to: newValue)
-                        }
-                        .onChange(of: cellSize) { newValue in
-                            guard let size = newValue else { return }
-                            self.delegate?.cellSizeDidChange(to: size)
-                        }
-                        .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
-                               idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                            .onChange(of: pwdURL) { newValue in
+                                self.delegate?.pwdDidChange(to: newValue)
+                            }
+                            .onChange(of: cellSize) { newValue in
+                                guard let size = newValue else { return }
+                                self.delegate?.cellSizeDidChange(to: size)
+                            }
+                            .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
+                                   idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+                    }
 
                     // Our custom (non-native) tab bar, pinned to the bottom of
                     // the window. It is only shown when there is more than one
