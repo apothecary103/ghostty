@@ -122,10 +122,21 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
                                idealHeight: lastFocusedSurface?.value?.initialSize?.height)
 
-                    // The custom tab bar is now drawn by the core renderer as a
-                    // reserved strip inside the terminal surface (see
-                    // `custom-tab-bar` / renderer/generic.zig), so there is no
-                    // SwiftUI tab strip here anymore.
+                    // Our custom (non-native) tab bar, pinned to the bottom of
+                    // the window. It is only shown when there is more than one
+                    // internal tab (the view model returns an empty array
+                    // otherwise). Animations are explicitly disabled so tabs
+                    // never shift when switching or when titles change length.
+                    if !viewModel.tabBarTabs.isEmpty {
+                        TerminalTabBarView(
+                            tabs: viewModel.tabBarTabs,
+                            backgroundColor: viewModel.tabBarBackgroundColor,
+                            foregroundColor: viewModel.tabBarForegroundColor,
+                            onSelect: { delegate?.tabBarSelectTab(id: $0) },
+                            onClose: { delegate?.tabBarCloseTab(id: $0) },
+                            onNewTab: { delegate?.tabBarNewTab() })
+                            .transaction { $0.animation = nil }
+                    }
                 }
                 // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
                 .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])

@@ -84,6 +84,11 @@ struct TerminalTabBarView: View {
 }
 
 /// A single boxed tab button.
+///
+/// Tabs use a *fixed* width so that switching tabs or changing titles never
+/// shifts the layout (a deliberate design choice — no animation, no reflow).
+/// The close button's slot is always reserved; only its opacity changes on
+/// hover, so hovering never changes a tab's width either.
 private struct TerminalTabButton: View {
     let tab: TerminalTabItem
     let palette: TerminalTabPalette
@@ -91,6 +96,10 @@ private struct TerminalTabButton: View {
     let onClose: () -> Void
 
     @State private var hovering = false
+
+    /// Fixed width for every tab. Titles truncate within this; the strip
+    /// scrolls horizontally when there are more tabs than fit.
+    private static let tabWidth: CGFloat = 150
 
     var body: some View {
         HStack(spacing: 6) {
@@ -103,25 +112,25 @@ private struct TerminalTabButton: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundColor(palette.textColor(active: tab.isActive))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            // The close button only appears on hover to keep the resting state
-            // minimal (Kitty/Emacs-like).
-            if hovering {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(palette.textColor(active: tab.isActive).opacity(0.85))
-                        .frame(width: 14, height: 14)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Close Tab")
+            // The close button's slot is always present (fixed size) so hovering
+            // never changes the tab width; only its visibility toggles.
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(palette.textColor(active: tab.isActive).opacity(0.85))
+                    .frame(width: 14, height: 14)
+                    .contentShape(Rectangle())
+                    .opacity(hovering ? 1 : 0)
             }
+            .buttonStyle(.plain)
+            .help("Close Tab")
+            .allowsHitTesting(hovering)
         }
         .padding(.leading, 9)
-        .padding(.trailing, hovering ? 5 : 9)
-        .frame(height: 22)
-        .frame(minWidth: 46, maxWidth: 220, alignment: .leading)
+        .padding(.trailing, 5)
+        .frame(width: Self.tabWidth, height: 22, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(palette.tabFill(active: tab.isActive, hovering: hovering)))
@@ -133,7 +142,6 @@ private struct TerminalTabButton: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.08), value: hovering)
     }
 }
 

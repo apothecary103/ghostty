@@ -61,6 +61,22 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    // MARK: Internal (non-native) tabs
+    //
+    // Instead of AppKit's native tabbing (one window per tab, which reserves a
+    // native NSTabBar region we can't fully theme), all tabs live inside a
+    // single window. Each `Tab` owns its own surface tree; the active tab's tree
+    // is mirrored into `surfaceTree`. See `TerminalController+Tabs.swift`.
+
+    /// All internal tabs in this window. Seeded lazily from the initial surface tree.
+    var tabs: [Tab] = []
+
+    /// The id of the currently selected internal tab.
+    var selectedTabID: Int?
+
+    /// Monotonic counter used to assign stable ids to internal tabs.
+    var tabIDCounter: Int = 0
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -180,9 +196,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             window.surfaceIsZoomed = to.zoomed != nil
         }
 
-        // If our surface tree is now nil then we close our window.
+        // If our surface tree is now empty then the active tab has no surfaces
+        // left. If there are other internal tabs, close just this tab (which
+        // swaps in a neighbor's tree). Otherwise close the window.
         if to.isEmpty {
-            self.window?.close()
+            if hasMultipleTabs {
+                closeActiveInternalTab()
+            } else {
+                self.window?.close()
+            }
         }
     }
 
@@ -195,7 +217,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // We have a special case if our tree is empty to close our tab immediately.
         // This makes it so that undo is handled properly.
         if newTree.isEmpty {
-            closeTabImmediately()
+            if hasMultipleTabs {
+                closeActiveInternalTab()
+            } else {
+                closeTabImmediately()
+            }
             return
         }
 
@@ -416,8 +442,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
         }
 
-        // If our parent is in non-native fullscreen, then new tabs do not work.
-        // See: https://github.com/mitchellh/ghostty/issues/392
+        // Internal (non-native) tabs: add a tab inside the parent's window
+        // rather than creating a new window and joining a native tab group.
+        // This is what powers our custom, themed tab strip.
+        //
+        // We still fall back to a new window while in non-native fullscreen,
+        // matching the old behavior's restriction.
         if let fullscreenStyle = parentController.fullscreenStyle,
            fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs {
             let alert = NSAlert()
@@ -429,6 +459,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return nil
         }
 
+        parentController.addInternalTab(withBaseConfig: baseConfig)
+        NSApp.activate(ignoringOtherApps: true)
+        return parentController
+
+        // NOTE: The original native-tab implementation below is retained (but
+        // unreachable) so restoration/undo helpers that reference it still
+        // compile. It is intentionally dead code for the internal-tabs path.
+        #if GHOSTTY_NATIVE_TABS
         // Create a new window and add it to the parent
         let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
@@ -527,6 +565,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         return controller
+        #endif // GHOSTTY_NATIVE_TABS
     }
 
     // MARK: - Methods
@@ -599,41 +638,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// tab group. Called whenever tabs are added/removed/reordered, a title
     /// changes, or the selection changes.
     func refreshTabBarForGroup() {
-        guard let tabbedWindows = window?.tabbedWindows else {
-            updateTabBarModel()
-            return
-        }
-        for tabbedWindow in tabbedWindows {
-            (tabbedWindow.windowController as? TerminalController)?.updateTabBarModel()
-        }
+        // Internal tabs live entirely within this controller.
+        rebuildTabBarModel()
     }
 
-    /// Rebuild this window's custom tab bar model from the current tab group.
-    /// The bar is only shown when there is more than one tab.
+    /// Rebuild this window's custom tab bar model. With internal tabs this just
+    /// delegates to `rebuildTabBarModel()` (see `TerminalController+Tabs.swift`).
     func updateTabBarModel() {
-        guard let window,
-              let windows = window.tabbedWindows as? [TerminalWindow],
-              windows.count > 1 else {
-            if !tabBarTabs.isEmpty { tabBarTabs = [] }
-            return
-        }
-
-        let selected = window.tabGroup?.selectedWindow
-        tabBarTabs = windows.enumerated().map { index, tabWindow in
-            TerminalTabItem(
-                id: tabWindow.windowNumber,
-                index: index + 1,
-                title: tabWindow.title,
-                isActive: tabWindow == selected,
-                tabColor: tabWindow.tabColor.displayColor.map { Color(nsColor: $0) })
-        }
-
-        // Theme the bar from the focused surface's background (what the user
-        // actually sees) and the configured foreground color so it follows the
-        // active color scheme.
-        tabBarBackgroundColor = focusedSurface?.derivedConfig.backgroundColor
-            ?? ghostty.config.backgroundColor
-        tabBarForegroundColor = ghostty.config.foregroundColor
+        rebuildTabBarModel()
     }
 
     /// Hide the native macOS tab bar. We render our own tab bar instead. AppKit
@@ -650,20 +662,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // MARK: Custom Tab Bar Actions
 
     override func tabBarSelectTab(id: Int) {
-        guard let target = window?.tabbedWindows?.first(
-            where: { $0.windowNumber == id }) else { return }
-        target.makeKeyAndOrderFront(nil)
+        selectInternalTab(id: id)
     }
 
     override func tabBarCloseTab(id: Int) {
-        guard let target = window?.tabbedWindows?.first(
-            where: { $0.windowNumber == id }) else { return }
-        // Route through the standard close path so confirmation and undo work.
-        target.performClose(nil)
+        closeInternalTab(id: id)
     }
 
     override func tabBarNewTab() {
-        newWindowForTab(nil)
+        // Route through the core so the new tab inherits working directory etc.
+        newTab(nil)
     }
 
     override func windowTitleDidChange() {
@@ -758,13 +766,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        // More than 1 window means we have tabs and we're closing a tab
-        if window?.tabGroup?.windows.count ?? 0 > 1 {
+        // More than 1 internal tab means we're closing a tab.
+        if hasMultipleTabs {
             closeTab(nil)
             return
         }
 
-        // 1 window, closing the window
+        // 1 tab, closing the window
         closeWindow(nil)
     }
 
@@ -1214,6 +1222,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // apply this based on the root config but change it later based on surface
         // config (see focused surface change callback).
         syncAppearance(.init(config))
+
+        // We manage tabs ourselves (internal, non-native tabs). Disallow AppKit's
+        // native tabbing so it never creates an NSTabBar region (which would
+        // otherwise leave un-themable dead space at the top of the window).
+        window.tabbingMode = .disallowed
+
+        // Seed our internal tabs array from the initial surface tree.
+        seedInitialTabIfNeeded()
     }
 
     /// Setup correct window frame before showing the window
@@ -1363,14 +1379,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func closeTab(_ sender: Any?) {
-        guard let window = window else { return }
-        guard window.tabGroup?.windows.count ?? 0 > 1 else {
+        guard window != nil else { return }
+
+        // With internal tabs, "close tab" closes the active internal tab. If
+        // this is the only tab, close the window instead.
+        guard hasMultipleTabs else {
             closeWindow(sender)
             return
         }
 
         guard surfaceTree.contains(where: { $0.needsConfirmQuit }) else {
-            closeTabImmediately()
+            closeActiveInternalTab()
             return
         }
 
@@ -1378,7 +1397,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             messageText: "Close Tab?",
             informativeText: "The terminal still has a running process. If you close the tab the process will be killed."
         ) {
-            self.closeTabImmediately()
+            self.closeActiveInternalTab()
         }
     }
 
@@ -1592,46 +1611,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabEnum = tabEnumAny as? ghostty_action_goto_tab_e else { return }
         let tabIndex: Int32 = tabEnum.rawValue
 
-        guard let windowController = window.windowController else { return }
-        guard let tabGroup = windowController.window?.tabGroup else { return }
-        let tabbedWindows = tabGroup.windows
-
-        // This will be the index we want to actual go to
-        let finalIndex: Int
-
-        // An index that is invalid is used to signal some special values.
+        // Route to our internal tabs.
         if tabIndex <= 0 {
-            guard let selectedWindow = tabGroup.selectedWindow else { return }
-            guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
-
             if tabIndex == GHOSTTY_GOTO_TAB_PREVIOUS.rawValue {
-                if selectedIndex == 0 {
-                    finalIndex = tabbedWindows.count - 1
-                } else {
-                    finalIndex = selectedIndex - 1
-                }
+                selectInternalTab(relative: -1)
             } else if tabIndex == GHOSTTY_GOTO_TAB_NEXT.rawValue {
-                if selectedIndex == tabbedWindows.count - 1 {
-                    finalIndex = 0
-                } else {
-                    finalIndex = selectedIndex + 1
-                }
+                selectInternalTab(relative: 1)
             } else if tabIndex == GHOSTTY_GOTO_TAB_LAST.rawValue {
-                finalIndex = tabbedWindows.count - 1
-            } else {
-                return
+                selectInternalTab(absolute: tabs.count)
             }
         } else {
-            // The configured value is 1-indexed.
-            guard tabIndex >= 1 else { return }
-
-            // If our index is outside our boundary then we use the max
-            finalIndex = min(Int(tabIndex - 1), tabbedWindows.count - 1)
+            // The configured value is 1-indexed. Clamp to the last tab.
+            selectInternalTab(absolute: min(Int(tabIndex), tabs.count))
         }
-
-        guard finalIndex >= 0 else { return }
-        let targetWindow = tabbedWindows[finalIndex]
-        targetWindow.makeKeyAndOrderFront(nil)
     }
 
     @objc private func onCloseTab(notification: SwiftUI.Notification) {
