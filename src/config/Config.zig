@@ -6836,12 +6836,12 @@ pub const Keybinds = struct {
                     },
                     .{ .goto_tab = (i - start) + 1 },
                     .{
-                        // Upstream keeps this not performable on macOS so the
-                        // NATIVE tab bar's key equivalents drive cmd+1..9. This
-                        // fork uses internal (non-native) tabs with no native
-                        // tab bar, so we make it performable everywhere and
-                        // handle goto_tab directly in TerminalController.
-                        .performable = true, // fork: internal tabs handle these directly (no native tab keyEquivalent)
+                        // On macOS we keep this not performable so that the
+                        // keyboard shortcuts in tabs work. In the future the
+                        // correct fix is to fix the reverse mapping lookup
+                        // to allow us to lookup performable keybinds
+                        // conditionally.
+                        .performable = !builtin.target.os.tag.isDarwin(),
                     },
                 );
 
@@ -6857,7 +6857,7 @@ pub const Keybinds = struct {
                     },
                     .{ .goto_tab = (i - start) + 1 },
                     .{
-                        .performable = true, // fork: internal tabs handle these directly (no native tab keyEquivalent)
+                        .performable = !builtin.target.os.tag.isDarwin(),
                     },
                 );
             }
@@ -6870,7 +6870,7 @@ pub const Keybinds = struct {
                 .{ .last_tab = {} },
                 .{
                     // See comment above with the numeric goto_tab
-                    .performable = true, // fork: internal tabs handle these directly (no native tab keyEquivalent)
+                    .performable = !builtin.target.os.tag.isDarwin(),
                 },
             );
         }

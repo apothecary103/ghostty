@@ -152,8 +152,9 @@ private struct BoxedTab: View {
 
 // MARK: - Powerline style (Kitty-inspired)
 
-/// A solid, slanted block. The active tab is filled with an accent and uses
+/// A flat, solid block. The active tab is filled with an accent and uses
 /// inverted (high-contrast) text so the strip reads like a TUI status line.
+/// Blocks abut and are delineated by a thin trailing separator.
 private struct PowerlineTab: View {
     let tab: TerminalTabItem
     let palette: TerminalTabPalette
@@ -162,7 +163,6 @@ private struct PowerlineTab: View {
 
     @State private var hovering = false
     private static let tabWidth: CGFloat = 160
-    private static let slant: CGFloat = 12
 
     var body: some View {
         let fill = palette.powerlineFill(active: tab.isActive, hovering: hovering)
@@ -183,11 +183,15 @@ private struct PowerlineTab: View {
             CloseButton(hovering: hovering, color: text, action: onClose)
         }
         .padding(.leading, 12)
-        .padding(.trailing, Self.slant + 4)
+        .padding(.trailing, 10)
         .frame(width: Self.tabWidth, height: 30, alignment: .leading)
-        .background(fill.clipShape(SlantShape(slant: Self.slant)))
+        .background(fill)
+        .overlay(alignment: .trailing) {
+            // Thin separator between abutting blocks.
+            Rectangle().fill(palette.separator).frame(width: 1)
+        }
         .overlay(alignment: .leading) {
-            // A left accent bar on the active tab, like a powerline segment marker.
+            // A left accent bar on the active tab, like a status-line marker.
             if tab.isActive, let accent = tab.tabColor {
                 Rectangle().fill(accent).frame(width: 3)
             }
@@ -195,21 +199,6 @@ private struct PowerlineTab: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering = $0 }
-    }
-}
-
-/// A right-slanted block (trapezoid) used for the powerline style. The diagonal
-/// right edge leaves a bar-background sliver between tabs, evoking powerline.
-private struct SlantShape: Shape {
-    var slant: CGFloat = 12
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX - slant, y: r.minY))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
-        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
-        p.closeSubpath()
-        return p
     }
 }
 

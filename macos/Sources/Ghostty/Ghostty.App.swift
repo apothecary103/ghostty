@@ -1163,9 +1163,12 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
-                    // Similar to goto_split (see comment there) about our performability,
-                    // we should make this more accurate later.
-                    guard (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1 else { return false }
+                    // We can perform goto_tab if this window has more than one
+                    // tab. That's either multiple native tab windows OR, for our
+                    // fork's internal (non-native) tabs, multiple internal tabs.
+                    let nativeTabs = (surfaceView.window?.tabGroup?.windows.count ?? 0) > 1
+                    let internalTabs = (surfaceView.window?.windowController as? TerminalController)?.hasMultipleTabs ?? false
+                    guard nativeTabs || internalTabs else { return false }
 
                     NotificationCenter.default.post(
                         name: Notification.ghosttyGotoTab,
