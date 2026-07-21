@@ -2016,6 +2016,15 @@ keybind: Keybinds = .{},
 ///   don't look good extended.
 @"window-padding-color": WindowPaddingColor = .background,
 
+/// Draw a custom, terminal-styled tab bar rendered by Ghostty itself
+/// (as opposed to the native platform tab bar). Inspired by Kitty and
+/// Emacs, the bar is drawn by the core renderer as a reserved strip at
+/// the bottom of the terminal, so it looks identical on macOS and Linux
+/// and follows the terminal color scheme.
+///
+/// This is currently experimental.
+@"custom-tab-bar": bool = false,
+
 /// Synchronize rendering with the screen refresh rate. If true, this will
 /// minimize tearing and align redraws with the screen but may cause input
 /// latency. If false, this will maximize redraw frequency but may cause tearing,

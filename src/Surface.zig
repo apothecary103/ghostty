@@ -325,6 +325,7 @@ const DerivedConfig = struct {
     window_padding_left: u32,
     window_padding_right: u32,
     window_padding_balance: configpkg.Config.WindowPaddingBalance,
+    custom_tab_bar: bool,
     window_height: u32,
     window_width: u32,
     title: ?[:0]const u8,
@@ -404,6 +405,7 @@ const DerivedConfig = struct {
             .window_padding_left = config.@"window-padding-x".top_left,
             .window_padding_right = config.@"window-padding-x".bottom_right,
             .window_padding_balance = config.@"window-padding-balance",
+            .custom_tab_bar = config.@"custom-tab-bar",
             .window_height = config.@"window-height",
             .window_width = config.@"window-width",
             .title = config.title,
@@ -445,14 +447,28 @@ const DerivedConfig = struct {
             break :padding_right @intFromFloat(@floor(padding_right * x_dpi / 72));
         };
 
+        // Reserve a strip at the bottom for the custom tab bar. This is drawn
+        // by the renderer (see renderer/generic.zig) into the reserved region.
+        // Because we fold it into padding, the terminal grid automatically
+        // shrinks to leave room and all coordinate math handles it for free.
+        const tab_bar: u32 = tab_bar: {
+            if (!self.custom_tab_bar) break :tab_bar 0;
+            const h: f32 = @floatFromInt(tab_bar_height_pt);
+            break :tab_bar @intFromFloat(@floor(h * y_dpi / 72));
+        };
+
         return .{
             .top = padding_top,
-            .bottom = padding_bottom,
+            .bottom = padding_bottom + tab_bar,
             .left = padding_left,
             .right = padding_right,
         };
     }
 };
+
+/// The height, in points (unscaled), of the custom tab bar strip reserved at
+/// the bottom of the terminal when `custom-tab-bar` is enabled.
+pub const tab_bar_height_pt: u32 = 28;
 
 /// Create a new surface. This must be called from the main thread. The
 /// pointer to the memory for the surface must be provided and must be
