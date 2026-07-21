@@ -51,6 +51,16 @@ class BaseTerminalController: NSWindowController,
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
 
+    /// The items shown in the custom (non-native) tab bar. Empty hides the bar.
+    /// Only populated by ``TerminalController``; other subclasses (e.g. the
+    /// quick terminal) leave this empty so no tab bar is drawn.
+    @Published var tabBarTabs: [TerminalTabItem] = []
+
+    /// The terminal background/foreground colors used to theme the custom tab
+    /// bar so it follows the active color scheme.
+    @Published var tabBarBackgroundColor: Color = Color(nsColor: .windowBackgroundColor)
+    @Published var tabBarForegroundColor: Color = Color(nsColor: .labelColor)
+
     /// True when any surface in this controller currently has an active bell.
     @Published private(set) var bell: Bool = false
 
@@ -864,10 +874,11 @@ class BaseTerminalController: NSWindowController,
             window.title = computeTitle(
                 title: titleOverride,
                 bell: focusedSurface?.bell ?? false)
-            return
+        } else {
+            window.title = lastComputedTitle
         }
 
-        window.title = lastComputedTitle
+        windowTitleDidChange()
     }
 
     func pwdDidChange(to: URL?) {
@@ -889,6 +900,18 @@ class BaseTerminalController: NSWindowController,
         guard to.width > 0 && to.height > 0 else { return }
         self.window?.contentResizeIncrements = to
     }
+
+    // Custom tab bar actions. These are no-ops in the base class (e.g. the quick
+    // terminal has no tabs) and overridden by ``TerminalController``. They are
+    // real methods rather than protocol-extension defaults so that subclass
+    // overrides are actually dispatched through the delegate.
+    func tabBarSelectTab(id: Int) {}
+    func tabBarCloseTab(id: Int) {}
+    func tabBarNewTab() {}
+
+    /// Called after the window title is (re)applied. Subclasses can override to
+    /// react, e.g. to refresh the custom tab bar titles.
+    func windowTitleDidChange() {}
 
     func performSplitAction(_ action: TerminalSplitOperation) {
         switch action {

@@ -20,6 +20,15 @@ protocol TerminalViewDelegate: AnyObject {
 
     /// A split tree operation
     func performSplitAction(_ action: TerminalSplitOperation)
+
+    /// Select the tab identified by the given id (the backing window number).
+    func tabBarSelectTab(id: Int)
+
+    /// Close the tab identified by the given id (the backing window number).
+    func tabBarCloseTab(id: Int)
+
+    /// Create a new tab, triggered by the custom tab bar's "+" button.
+    func tabBarNewTab()
 }
 
 /// The view model is a required implementation for TerminalView callers. This contains
@@ -35,6 +44,15 @@ protocol TerminalViewModel: ObservableObject {
 
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
+
+    /// The items to show in the custom (non-native) tab bar. When empty, the
+    /// tab bar is hidden. This should be @Published.
+    var tabBarTabs: [TerminalTabItem] { get }
+
+    /// The terminal background/foreground colors used to theme the custom tab
+    /// bar so it follows the active color scheme. These should be @Published.
+    var tabBarBackgroundColor: Color { get }
+    var tabBarForegroundColor: Color { get }
 }
 
 /// The main terminal view. This terminal view supports splits.
@@ -103,6 +121,18 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         }
                         .frame(idealWidth: lastFocusedSurface?.value?.initialSize?.width,
                                idealHeight: lastFocusedSurface?.value?.initialSize?.height)
+
+                    // Custom (non-native) tab bar. This is populated with more
+                    // than one tab; a single tab hides the bar entirely.
+                    if !viewModel.tabBarTabs.isEmpty {
+                        TerminalTabBarView(
+                            tabs: viewModel.tabBarTabs,
+                            backgroundColor: viewModel.tabBarBackgroundColor,
+                            foregroundColor: viewModel.tabBarForegroundColor,
+                            onSelect: { delegate?.tabBarSelectTab(id: $0) },
+                            onClose: { delegate?.tabBarCloseTab(id: $0) },
+                            onNewTab: { delegate?.tabBarNewTab() })
+                    }
                 }
                 // Ignore safe area to extend up in to the titlebar region if we have the "hidden" titlebar style
                 .ignoresSafeArea(.container, edges: ghostty.config.macosTitlebarStyle == .hidden ? .top : [])

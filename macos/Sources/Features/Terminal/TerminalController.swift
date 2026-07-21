@@ -581,6 +581,94 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 }
             }
         }
+
+        // Keep our custom tab bar in sync with the tab group, and make sure the
+        // native tab bar stays hidden. AppKit reveals the native bar when the
+        // tab group changes, so we re-hide it here (and once more on the next
+        // runloop tick to catch late reveals).
+        refreshTabBarForGroup()
+        hideNativeTabBar()
+        if window?.tabbedWindows?.count ?? 0 > 1 {
+            DispatchQueue.main.async { [weak self] in
+                self?.hideNativeTabBar()
+            }
+        }
+    }
+
+    /// Rebuild the custom tab bar model for every window in this controller's
+    /// tab group. Called whenever tabs are added/removed/reordered, a title
+    /// changes, or the selection changes.
+    func refreshTabBarForGroup() {
+        guard let tabbedWindows = window?.tabbedWindows else {
+            updateTabBarModel()
+            return
+        }
+        for tabbedWindow in tabbedWindows {
+            (tabbedWindow.windowController as? TerminalController)?.updateTabBarModel()
+        }
+    }
+
+    /// Rebuild this window's custom tab bar model from the current tab group.
+    /// The bar is only shown when there is more than one tab.
+    func updateTabBarModel() {
+        guard let window,
+              let windows = window.tabbedWindows as? [TerminalWindow],
+              windows.count > 1 else {
+            if !tabBarTabs.isEmpty { tabBarTabs = [] }
+            return
+        }
+
+        let selected = window.tabGroup?.selectedWindow
+        tabBarTabs = windows.enumerated().map { index, tabWindow in
+            TerminalTabItem(
+                id: tabWindow.windowNumber,
+                index: index + 1,
+                title: tabWindow.title,
+                isActive: tabWindow == selected,
+                tabColor: tabWindow.tabColor.displayColor.map { Color(nsColor: $0) })
+        }
+
+        // Theme the bar from the focused surface's background (what the user
+        // actually sees) and the configured foreground color so it follows the
+        // active color scheme.
+        tabBarBackgroundColor = focusedSurface?.derivedConfig.backgroundColor
+            ?? ghostty.config.backgroundColor
+        tabBarForegroundColor = ghostty.config.foregroundColor
+    }
+
+    /// Hide the native macOS tab bar. We render our own tab bar instead. AppKit
+    /// re-adds/reveals the native bar whenever the tab group changes, so this is
+    /// re-applied from `relabelTabs()`.
+    func hideNativeTabBar() {
+        guard let themeFrame = window?.contentView?.superview,
+              let tabBar = themeFrame.firstDescendant(withClassName: "NSTabBar") else {
+            return
+        }
+        tabBar.isHidden = true
+    }
+
+    // MARK: Custom Tab Bar Actions
+
+    override func tabBarSelectTab(id: Int) {
+        guard let target = window?.tabbedWindows?.first(
+            where: { $0.windowNumber == id }) else { return }
+        target.makeKeyAndOrderFront(nil)
+    }
+
+    override func tabBarCloseTab(id: Int) {
+        guard let target = window?.tabbedWindows?.first(
+            where: { $0.windowNumber == id }) else { return }
+        // Route through the standard close path so confirmation and undo work.
+        target.performClose(nil)
+    }
+
+    override func tabBarNewTab() {
+        newWindowForTab(nil)
+    }
+
+    override func windowTitleDidChange() {
+        super.windowTitleDidChange()
+        refreshTabBarForGroup()
     }
 
     private func fixTabBar() {

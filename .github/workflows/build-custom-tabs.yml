@@ -1,0 +1,82 @@
+name: Build Custom Tabs (macOS DMG)
+
+# Builds the macOS app (with the custom non-native tab bar) into an unsigned
+# DMG artifact. Runs on GitHub-hosted macOS runners so it sidesteps local
+# disk/network limits. The `ReleaseLocal` Xcode config is ad-hoc signed, so no
+# Apple Developer certificate is required.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [custom-macos-tabs]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # macOS 15 image ships Xcode 26 (required by Ghostty main). If this ever
+    # regresses, bump to `macos-26` once GitHub promotes that label.
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build-number generation reads full history
+
+      - name: Show available Xcodes
+        run: |
+          ls /Applications | grep -i Xcode || true
+          xcodebuild -version || true
+
+      - name: Select Xcode 26
+        run: |
+          # Prefer an Xcode 26.x; fall back to the newest installed.
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XC" ]; then XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1); fi
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          # Export for every later step (incl. `nix develop`, whose shell would
+          # otherwise resolve xcrun to the nix Apple SDK instead of real Xcode).
+          echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
+          xcodebuild -version
+
+      - name: Install Metal Toolchain
+        run: |
+          # Xcode 26 ships the Metal compiler as an on-demand component.
+          # Runners are on fast wired networks, so this just works here.
+          xcodebuild -showComponent MetalToolchain || true
+          sudo xcodebuild -downloadComponent MetalToolchain
+          xcrun -sdk macosx metal --version
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Build Ghostty.app (ReleaseLocal)
+        run: |
+          # ReleaseFast maps to the ad-hoc-signed "ReleaseLocal" Xcode config.
+          nix develop --command zig build -Doptimize=ReleaseFast
+          echo "--- artifacts ---"
+          ls -la macos/build/ReleaseLocal/ || (echo "app not found; listing macos/build"; find macos/build -maxdepth 2 -name "*.app" -o -maxdepth 2 -type d | head)
+
+      - name: Package DMG
+        run: |
+          APP=$(find macos/build -maxdepth 2 -name "Ghostty.app" -type d | head -1)
+          echo "Packaging $APP"
+          test -n "$APP"
+          STAGE="$(mktemp -d)/Ghostty"
+          mkdir -p "$STAGE"
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "Ghostty (Custom Tabs)" \
+            -srcfolder "$STAGE" -ov -format UDZO Ghostty-CustomTabs.dmg
+          ls -la Ghostty-CustomTabs.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghostty-CustomTabs-dmg
+          path: Ghostty-CustomTabs.dmg
+          if-no-files-found: error
