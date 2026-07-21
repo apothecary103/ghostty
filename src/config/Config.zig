@@ -3282,10 +3282,14 @@ keybind: Keybinds = .{},
 /// bottom of the window on macOS. This does not affect anything on Linux.
 ///
 ///   * `boxed` - Minimal rounded, bordered tab "chips" (the default).
-///   * `powerline` - Kitty-inspired solid blocks; the active tab is filled
-///     with an accent and the whole strip reads like a TUI status line.
+///   * `powerline` - Kitty-inspired flat solid blocks; the active tab is
+///     filled with an accent and the strip reads like a TUI status line.
 ///   * `emacs` - Emacs tab-line style: flat text tabs separated by thin
 ///     vertical bars, with an accent underline on the active tab.
+///   * `minimal` - Just text (index + title), no chrome; the active tab is
+///     brighter/bolder and inactive tabs are dimmed.
+///   * `underline` - Text with a thin accent underline under the active tab;
+///     no fills or borders.
 @"custom-tab-style": CustomTabStyle = .boxed,
 
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
@@ -8990,6 +8994,8 @@ pub const CustomTabStyle = enum {
     boxed,
     powerline,
     emacs,
+    minimal,
+    underline,
 };
 
 /// See macos-titlebar-proxy-icon

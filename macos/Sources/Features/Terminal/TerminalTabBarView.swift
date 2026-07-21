@@ -42,12 +42,17 @@ struct TerminalTabBarView: View {
     /// Invoked when the user requests a new tab via the "+" button.
     let onNewTab: () -> Void
 
-    private var barHeight: CGFloat { style == .emacs ? 26 : 30 }
+    private var barHeight: CGFloat {
+        switch style {
+        case .emacs, .minimal, .underline: return 26
+        case .boxed, .powerline: return 30
+        }
+    }
     private var interTabSpacing: CGFloat {
         switch style {
         case .boxed: return 5
-        case .powerline: return 0
-        case .emacs: return 0
+        case .powerline, .emacs: return 0
+        case .minimal, .underline: return 2
         }
     }
 
@@ -100,6 +105,12 @@ struct TerminalTabBarView: View {
         case .emacs:
             EmacsTab(tab: tab, palette: palette,
                      onSelect: { onSelect(tab.id) }, onClose: { onClose(tab.id) })
+        case .minimal:
+            MinimalTab(tab: tab, palette: palette, underline: false,
+                       onSelect: { onSelect(tab.id) }, onClose: { onClose(tab.id) })
+        case .underline:
+            MinimalTab(tab: tab, palette: palette, underline: true,
+                       onSelect: { onSelect(tab.id) }, onClose: { onClose(tab.id) })
         }
     }
 }
@@ -248,6 +259,54 @@ private struct EmacsTab: View {
                         .fill(tab.tabColor ?? palette.accent)
                         .frame(height: 2)
                 }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - Minimal / Underline styles
+
+/// The most minimal look: just text (index + title), no fills, borders, or
+/// separators. The active tab is brighter and bolder; inactive tabs are dimmed.
+/// When `underline` is true, the active tab also gets a thin accent underline.
+private struct MinimalTab: View {
+    let tab: TerminalTabItem
+    let palette: TerminalTabPalette
+    let underline: Bool
+    let onSelect: () -> Void
+    let onClose: () -> Void
+
+    @State private var hovering = false
+    private static let tabWidth: CGFloat = 132
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("\(tab.index)")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(palette.indexColor(active: tab.isActive))
+
+            Text(tab.title.isEmpty ? "…" : tab.title)
+                .font(.system(size: 12, weight: tab.isActive ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundColor(palette.textColor(active: tab.isActive))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            CloseButton(hovering: hovering,
+                        color: palette.textColor(active: tab.isActive),
+                        action: onClose)
+        }
+        .padding(.horizontal, 8)
+        .frame(width: Self.tabWidth, height: 24, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            if underline && tab.isActive {
+                Rectangle()
+                    .fill(tab.tabColor ?? palette.accent)
+                    .frame(height: 2)
+                    .padding(.horizontal, 6)
             }
         }
         .contentShape(Rectangle())

@@ -967,6 +967,6 @@ extension Ghostty.Config {
 
     /// (fork) The visual style of the custom, non-native tab bar.
     enum CustomTabStyle: String {
-        case boxed, powerline, emacs
+        case boxed, powerline, emacs, minimal, underline
     }
 }

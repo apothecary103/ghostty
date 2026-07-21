@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import GhosttyKit
 
 /// Content for a background (inactive) internal tab. These are kept mounted in
 /// the window (hidden behind the active tab) so their terminal surfaces stay
@@ -151,6 +152,29 @@ extension TerminalController {
         return id
     }
 
+    /// Pause the renderers of background (inactive) tabs and resume the active
+    /// one. Background tabs stay mounted (so their surfaces stay alive), but we
+    /// mark them occluded so Ghostty stops drawing them — otherwise every tab
+    /// renders every frame, which is a real performance drain.
+    func updateTabOcclusion() {
+        let windowVisible = window?.occlusionState.contains(.visible) ?? true
+
+        // The active tab uses the live surfaceTree (it may have splits added
+        // since it was last snapshotted); inactive tabs use their stored tree.
+        setOcclusion(for: surfaceTree, visible: windowVisible)
+        for tab in tabs where tab.id != selectedTabID {
+            setOcclusion(for: tab.tree, visible: false)
+        }
+    }
+
+    private func setOcclusion(for tree: SplitTree<Ghostty.SurfaceView>, visible: Bool) {
+        for view in tree {
+            guard let surface = view.surface, view.isWindowVisible != visible else { continue }
+            ghostty_surface_set_occlusion(surface, visible)
+            view.isWindowVisible = visible
+        }
+    }
+
     /// Move keyboard focus to the active tab's surface after a tab swap. The
     /// SwiftUI focus chain doesn't follow a surfaceTree replacement on its own.
     private func focusActiveTab() {
@@ -176,6 +200,9 @@ extension TerminalController {
         inactiveTabContents = tabs
             .filter { $0.id != selectedTabID }
             .map { InactiveTabContent(id: $0.id, tree: $0.tree) }
+
+        // Pause background tabs' renderers so they don't draw every frame.
+        updateTabOcclusion()
 
         guard tabs.count > 1 else {
             if !tabBarTabs.isEmpty { tabBarTabs = [] }
