@@ -153,6 +153,7 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                             tabs: viewModel.tabBarTabs,
                             backgroundColor: viewModel.tabBarBackgroundColor,
                             foregroundColor: viewModel.tabBarForegroundColor,
+                            style: ghostty.config.customTabStyle,
                             onSelect: { delegate?.tabBarSelectTab(id: $0) },
                             onClose: { delegate?.tabBarCloseTab(id: $0) },
                             onNewTab: { delegate?.tabBarNewTab() })

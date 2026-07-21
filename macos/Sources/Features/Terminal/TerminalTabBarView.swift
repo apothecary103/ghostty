@@ -2,37 +2,38 @@ import SwiftUI
 import AppKit
 
 /// A single entry in the custom (non-native) terminal tab bar.
-///
-/// Each Ghostty tab is backed by its own `NSWindow` in an AppKit tab group, so
-/// one of these mirrors a single window in `window.tabbedWindows`. The bar is
-/// rebuilt whenever the tab group changes (see
-/// `TerminalController.updateTabBarModel()`).
 struct TerminalTabItem: Identifiable, Equatable {
-    /// Stable identity of the backing window (its `windowNumber`), used to
-    /// route selection/close actions back to the correct window.
+    /// Stable identity of the internal tab, used to route selection/close.
     let id: Int
 
     /// 1-based position shown to the user.
     let index: Int
 
-    /// The window/tab title.
+    /// The tab title.
     let title: String
 
-    /// Whether this is the selected tab in the group.
+    /// Whether this is the selected tab.
     let isActive: Bool
 
     /// Optional user-assigned tab color, used as an accent on the tab.
     let tabColor: Color?
 }
 
-/// The custom terminal tab bar. This is a minimal, "terminal-native" tab strip
-/// drawing inspiration from Kitty and Emacs: a thin bar pinned to the bottom of
-/// the window with small boxed tabs whose colors are derived from the terminal
-/// color scheme (background/foreground) rather than the system chrome.
+/// The custom terminal tab bar. A thin bar pinned to the bottom of the window
+/// whose colors are derived from the terminal color scheme. The visual style is
+/// selectable via the `custom-tab-style` config (see `Ghostty.Config`):
+///
+///   * `.boxed` - minimal rounded, bordered chips (default).
+///   * `.powerline` - Kitty-inspired solid slanted blocks, active inverted.
+///   * `.emacs` - Emacs tab-line: flat text tabs, bars between, active underline.
+///
+/// Across all styles: tabs are fixed-width and un-animated so the strip never
+/// shifts when switching tabs or when a title's length changes.
 struct TerminalTabBarView: View {
     let tabs: [TerminalTabItem]
     let backgroundColor: Color
     let foregroundColor: Color
+    let style: Ghostty.Config.CustomTabStyle
 
     /// Invoked with a tab's `id` when the user activates it.
     let onSelect: (Int) -> Void
@@ -41,6 +42,15 @@ struct TerminalTabBarView: View {
     /// Invoked when the user requests a new tab via the "+" button.
     let onNewTab: () -> Void
 
+    private var barHeight: CGFloat { style == .emacs ? 26 : 30 }
+    private var interTabSpacing: CGFloat {
+        switch style {
+        case .boxed: return 5
+        case .powerline: return 0
+        case .emacs: return 0
+        }
+    }
+
     var body: some View {
         let palette = TerminalTabPalette(
             background: backgroundColor,
@@ -48,16 +58,12 @@ struct TerminalTabBarView: View {
 
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) {
+                HStack(spacing: interTabSpacing) {
                     ForEach(tabs) { tab in
-                        TerminalTabButton(
-                            tab: tab,
-                            palette: palette,
-                            onSelect: { onSelect(tab.id) },
-                            onClose: { onClose(tab.id) })
+                        tabView(tab, palette)
                     }
                 }
-                .padding(.horizontal, 8)
+                .padding(.horizontal, style == .boxed ? 8 : 0)
                 .frame(maxHeight: .infinity)
             }
 
@@ -72,7 +78,7 @@ struct TerminalTabBarView: View {
             .help("New Tab")
             .padding(.trailing, 6)
         }
-        .frame(height: 30)
+        .frame(height: barHeight)
         .frame(maxWidth: .infinity)
         .background(palette.barBackground)
         .overlay(alignment: .top) {
@@ -81,24 +87,33 @@ struct TerminalTabBarView: View {
                 .frame(height: 1)
         }
     }
+
+    @ViewBuilder
+    private func tabView(_ tab: TerminalTabItem, _ palette: TerminalTabPalette) -> some View {
+        switch style {
+        case .boxed:
+            BoxedTab(tab: tab, palette: palette,
+                     onSelect: { onSelect(tab.id) }, onClose: { onClose(tab.id) })
+        case .powerline:
+            PowerlineTab(tab: tab, palette: palette,
+                         onSelect: { onSelect(tab.id) }, onClose: { onClose(tab.id) })
+        case .emacs:
+            EmacsTab(tab: tab, palette: palette,
+                     onSelect: { onSelect(tab.id) }, onClose: { onClose(tab.id) })
+        }
+    }
 }
 
-/// A single boxed tab button.
-///
-/// Tabs use a *fixed* width so that switching tabs or changing titles never
-/// shifts the layout (a deliberate design choice — no animation, no reflow).
-/// The close button's slot is always reserved; only its opacity changes on
-/// hover, so hovering never changes a tab's width either.
-private struct TerminalTabButton: View {
+// MARK: - Boxed style (default)
+
+/// A single boxed tab "chip": rounded, bordered, fixed width.
+private struct BoxedTab: View {
     let tab: TerminalTabItem
     let palette: TerminalTabPalette
     let onSelect: () -> Void
     let onClose: () -> Void
 
     @State private var hovering = false
-
-    /// Fixed width for every tab. Titles truncate within this; the strip
-    /// scrolls horizontally when there are more tabs than fit.
     private static let tabWidth: CGFloat = 150
 
     var body: some View {
@@ -114,19 +129,9 @@ private struct TerminalTabButton: View {
                 .foregroundColor(palette.textColor(active: tab.isActive))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // The close button's slot is always present (fixed size) so hovering
-            // never changes the tab width; only its visibility toggles.
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(palette.textColor(active: tab.isActive).opacity(0.85))
-                    .frame(width: 14, height: 14)
-                    .contentShape(Rectangle())
-                    .opacity(hovering ? 1 : 0)
-            }
-            .buttonStyle(.plain)
-            .help("Close Tab")
-            .allowsHitTesting(hovering)
+            CloseButton(hovering: hovering,
+                        color: palette.textColor(active: tab.isActive),
+                        action: onClose)
         }
         .padding(.leading, 9)
         .padding(.trailing, 5)
@@ -145,9 +150,149 @@ private struct TerminalTabButton: View {
     }
 }
 
+// MARK: - Powerline style (Kitty-inspired)
+
+/// A solid, slanted block. The active tab is filled with an accent and uses
+/// inverted (high-contrast) text so the strip reads like a TUI status line.
+private struct PowerlineTab: View {
+    let tab: TerminalTabItem
+    let palette: TerminalTabPalette
+    let onSelect: () -> Void
+    let onClose: () -> Void
+
+    @State private var hovering = false
+    private static let tabWidth: CGFloat = 160
+    private static let slant: CGFloat = 12
+
+    var body: some View {
+        let fill = palette.powerlineFill(active: tab.isActive, hovering: hovering)
+        let text = palette.powerlineText(active: tab.isActive)
+
+        HStack(spacing: 7) {
+            Text("\(tab.index)")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundColor(text.opacity(0.75))
+
+            Text(tab.title.isEmpty ? "…" : tab.title)
+                .font(.system(size: 12, weight: tab.isActive ? .semibold : .regular, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundColor(text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            CloseButton(hovering: hovering, color: text, action: onClose)
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, Self.slant + 4)
+        .frame(width: Self.tabWidth, height: 30, alignment: .leading)
+        .background(fill.clipShape(SlantShape(slant: Self.slant)))
+        .overlay(alignment: .leading) {
+            // A left accent bar on the active tab, like a powerline segment marker.
+            if tab.isActive, let accent = tab.tabColor {
+                Rectangle().fill(accent).frame(width: 3)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// A right-slanted block (trapezoid) used for the powerline style. The diagonal
+/// right edge leaves a bar-background sliver between tabs, evoking powerline.
+private struct SlantShape: Shape {
+    var slant: CGFloat = 12
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - slant, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+// MARK: - Emacs style (tab-line)
+
+/// A flat text tab in the Emacs `tab-line` spirit: minimal, separated by thin
+/// vertical bars, with an accent underline on the active tab.
+private struct EmacsTab: View {
+    let tab: TerminalTabItem
+    let palette: TerminalTabPalette
+    let onSelect: () -> Void
+    let onClose: () -> Void
+
+    @State private var hovering = false
+    private static let tabWidth: CGFloat = 140
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Leading vertical separator bar between tabs.
+            Rectangle()
+                .fill(palette.separator)
+                .frame(width: 1, height: 14)
+
+            HStack(spacing: 6) {
+                Text("\(tab.index):")
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(palette.indexColor(active: tab.isActive))
+
+                Text(tab.title.isEmpty ? "…" : tab.title)
+                    .font(.system(size: 12, weight: tab.isActive ? .semibold : .regular, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundColor(palette.textColor(active: tab.isActive))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                CloseButton(hovering: hovering,
+                            color: palette.textColor(active: tab.isActive),
+                            action: onClose)
+            }
+            .padding(.horizontal, 8)
+            .frame(width: Self.tabWidth, height: 26, alignment: .leading)
+            .background(tab.isActive ? palette.tabFill(active: true, hovering: false) : .clear)
+            .overlay(alignment: .bottom) {
+                // Emacs tab-line marks the current tab with an accent underline.
+                if tab.isActive {
+                    Rectangle()
+                        .fill(tab.tabColor ?? palette.accent)
+                        .frame(height: 2)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - Shared
+
+/// A close button whose slot is always reserved (fixed size); only its
+/// visibility toggles on hover, so hovering never changes a tab's width.
+private struct CloseButton: View {
+    let hovering: Bool
+    let color: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(color.opacity(0.85))
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+                .opacity(hovering ? 1 : 0)
+        }
+        .buttonStyle(.plain)
+        .help("Close Tab")
+        .allowsHitTesting(hovering)
+    }
+}
+
 /// Derives a small set of theme-following colors for the tab bar from the
-/// terminal background and foreground colors. Active tabs get a slightly
-/// "lifted" background and full-strength text; inactive tabs are dimmed.
+/// terminal background and foreground colors.
 private struct TerminalTabPalette {
     private let background: NSColor
     private let foreground: NSColor
@@ -167,10 +312,13 @@ private struct TerminalTabPalette {
         Color(nsColor: foreground.withAlphaComponent(0.12))
     }
 
+    /// A theme accent (foreground-leaning) used for active markers.
+    var accent: Color {
+        Color(nsColor: blend(background, into: foreground, fraction: 0.65))
+    }
+
     func tabFill(active: Bool, hovering: Bool) -> Color {
         if active {
-            // Lift the background toward the foreground so the active tab reads
-            // as raised regardless of light/dark scheme.
             return Color(nsColor: blend(background, into: foreground, fraction: isLight ? 0.10 : 0.16))
         }
         if hovering {
@@ -189,6 +337,29 @@ private struct TerminalTabPalette {
 
     func indexColor(active: Bool) -> Color {
         Color(nsColor: foreground.withAlphaComponent(active ? 0.7 : 0.4))
+    }
+
+    // MARK: Powerline
+
+    /// The active tab is filled near the foreground so text inverts to the
+    /// background color — a high-contrast TUI look. Inactive tabs stay near the
+    /// background with a slight lift on hover.
+    func powerlineFill(active: Bool, hovering: Bool) -> Color {
+        if active {
+            return Color(nsColor: blend(background, into: foreground, fraction: isLight ? 0.82 : 0.70))
+        }
+        if hovering {
+            return Color(nsColor: blend(background, into: foreground, fraction: 0.12))
+        }
+        return Color(nsColor: blend(background, into: foreground, fraction: 0.05))
+    }
+
+    func powerlineText(active: Bool) -> Color {
+        if active {
+            // Invert: use the background color for text on the bright fill.
+            return Color(nsColor: background)
+        }
+        return Color(nsColor: foreground.withAlphaComponent(0.6))
     }
 
     private func blend(_ base: NSColor, into other: NSColor, fraction: CGFloat) -> NSColor {

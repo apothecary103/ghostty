@@ -3278,6 +3278,16 @@ keybind: Keybinds = .{},
 /// Changing this option at runtime only applies to new windows.
 @"macos-titlebar-style": MacTitlebarStyle = .transparent,
 
+/// (fork) The visual style of the custom, non-native tab bar rendered at the
+/// bottom of the window on macOS. This does not affect anything on Linux.
+///
+///   * `boxed` - Minimal rounded, bordered tab "chips" (the default).
+///   * `powerline` - Kitty-inspired solid blocks; the active tab is filled
+///     with an accent and the whole strip reads like a TUI status line.
+///   * `emacs` - Emacs tab-line style: flat text tabs separated by thin
+///     vertical bars, with an accent underline on the active tab.
+@"custom-tab-style": CustomTabStyle = .boxed,
+
 /// Whether the proxy icon in the macOS titlebar is visible. The proxy icon
 /// is the icon that represents the folder of the current working directory.
 /// You can see this very clearly in the macOS built-in Terminal.app
@@ -8973,6 +8983,13 @@ pub const MacTitlebarStyle = enum {
     transparent,
     tabs,
     hidden,
+};
+
+/// See custom-tab-style (fork)
+pub const CustomTabStyle = enum {
+    boxed,
+    powerline,
+    emacs,
 };
 
 /// See macos-titlebar-proxy-icon
