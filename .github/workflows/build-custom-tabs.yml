@@ -31,9 +31,14 @@ jobs:
 
       - name: Select Xcode 26
         run: |
-          # Prefer an Xcode 26.x; fall back to the newest installed.
-          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          if [ -z "$XC" ]; then XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1); fi
+          # Ghostty main needs Xcode 26. Pick the newest 26.x — but SKIP 26.3.x:
+          # its actool has a regression that fails to compile Ghostty's Icon
+          # Composer `.icon` (verified locally: 26.6 and <=26.2 compile it fine,
+          # 26.3.0 exits 65). Fall back gracefully if only 26.3 exists.
+          CANDIDATES=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V)
+          XC=$(echo "$CANDIDATES" | grep -v "Xcode_26\.3" | tail -1)
+          [ -z "$XC" ] && XC=$(echo "$CANDIDATES" | tail -1)
+          [ -z "$XC" ] && XC=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
           echo "Using $XC"
           sudo xcode-select -s "$XC/Contents/Developer"
           # Export for every later step (incl. `nix develop`, whose shell would
