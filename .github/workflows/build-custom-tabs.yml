@@ -41,12 +41,18 @@ jobs:
           echo "DEVELOPER_DIR=$XC/Contents/Developer" >> "$GITHUB_ENV"
           xcodebuild -version
 
-      - name: Install Metal Toolchain
+      - name: Ensure Metal Toolchain
         run: |
-          # Xcode 26 ships the Metal compiler as an on-demand component.
-          # Runners are on fast wired networks, so this just works here.
-          xcodebuild -showComponent MetalToolchain || true
-          sudo xcodebuild -downloadComponent MetalToolchain
+          # Xcode 26 ships the Metal compiler as an on-demand component. The
+          # runner images usually have it preinstalled; only download if the
+          # compiler can't actually run (avoids a needless catalog fetch that
+          # can fail on a version mismatch).
+          if xcrun -sdk macosx metal --version >/dev/null 2>&1; then
+            echo "Metal Toolchain already present."
+          else
+            echo "Metal Toolchain missing — downloading."
+            sudo xcodebuild -downloadComponent MetalToolchain
+          fi
           xcrun -sdk macosx metal --version
 
       - name: Install Nix
